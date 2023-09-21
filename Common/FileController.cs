@@ -77,7 +77,7 @@ namespace Utilities
     public class ParserHelpers
     {
 
-        public static bool TryParse(string s, out string keyword, out double value)
+        public static bool TryParse(string s, out string keyword, out float value)
         {
             keyword = null;
             value = 0;
@@ -103,12 +103,7 @@ namespace Utilities
             return float.TryParse(subs, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
         }
 
-        public static bool TryParse(string subs, out double value)
-        {
-            return double.TryParse(subs, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
-        }
-
-        public static void Append(StringBuilder strB, string key, double value)
+        public static void Append(StringBuilder strB, string key, float value)
         {
             strB.AppendFormat(CultureInfo.InvariantCulture, " {0}{1:0.#####}", key, value);
             //var value = value.ToString(CultureInfo.InvariantCulture);
@@ -223,13 +218,13 @@ namespace Common
             if (zDeclaration != null)
             {
                 ParserHelpers.TryParse(zDeclaration.Substring(3), out LayerZ);
-                //LayerZ = double.Parse(zDeclaration.AsSpan(3));
+                //LayerZ = float.Parse(zDeclaration.AsSpan(3));
             }
             var heightDeclaration = AllLines.Find(x => x.StartsWith(";HEIGHT:"));
             if (heightDeclaration != null)
             {
                 ParserHelpers.TryParse(heightDeclaration.Substring(8), out LayerHeight);
-                //LayerHeight = double.Parse(heightDeclaration.AsSpan(8));
+                //LayerHeight = float.Parse(heightDeclaration.AsSpan(8));
             }
         }
 
@@ -263,14 +258,14 @@ namespace Common
     public class MoveCommand
     {
         public readonly int LineIndex;
-        public double? X;
-        public double? Y;
-        public double? Z;
-        public double? E;
-        public double? F;
+        public float? X;
+        public float? Y;
+        public float? Z;
+        public float? E;
+        public float? F;
         public string Comment;
 
-        public MoveCommand(int lineIndex, double? x, double? y, double? z, double? e, double? f, string comment)
+        public MoveCommand(int lineIndex, float? x, float? y, float? z, float? e, float? f, string comment)
         {
             LineIndex = lineIndex;
             X = x;
@@ -294,7 +289,7 @@ namespace Common
 
             foreach (var s in splitted)
             {
-                if (ParserHelpers.TryParse(s, out string keyword, out double parsed))
+                if (ParserHelpers.TryParse(s, out string keyword, out float parsed))
                 {
                     switch (keyword)
                     {

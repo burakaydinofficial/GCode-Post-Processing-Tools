@@ -1,4 +1,7 @@
-﻿using Common;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using Common;
 using System.Numerics;
 
 namespace Tools
@@ -66,7 +69,7 @@ namespace Tools
             return true;
         }
 
-        public int VaseLayers(IReadOnlyList<Layer> layers, int transitionLayerCount, bool connect = false, bool align = false)
+        public int VaseLayers(IReadOnlyList<Layer> layers, int transitionLayerCount, bool connect = false, AlignConfig align = null)
         {
             int totalLayerCount = 0;
             if (connect)
@@ -108,7 +111,7 @@ namespace Tools
             return totalLayerCount;
         }
 
-        public void VaseLayersInternal(IEnumerable<Layer> layers, int transitionLayerCount, bool align)
+        public void VaseLayersInternal(IEnumerable<Layer> layers, int transitionLayerCount, AlignConfig align)
         {
             var list = layers.ToList();
             var count = list.Count;
@@ -117,9 +120,9 @@ namespace Tools
                 var edgeDistance = Math.Min(i, count - (i + 1));
                 var layerWeight = Math.Clamp((float)edgeDistance / transitionLayerCount, 0f, 1f);
                 VaseLayer(list[i], layerWeight);
-                if (align && i < list.Count - 1)
+                if (align != null && i < list.Count - 1)
                 {
-                    AlignLayer(list[i], list[i + 1], 1f, 0.9f, 5f);
+                    AlignLayer(list[i], list[i + 1], align);
                 }
             }
         }
@@ -149,14 +152,14 @@ namespace Tools
             }
         }
 
-        public bool AlignLayer(Layer layer, Layer reference, float intensity, float initialAlignmentThreshold = 0.9f, float maxLength = 1f, float lengthRatio = 0.2f)
+        public bool AlignLayer(Layer layer, Layer reference, AlignConfig config)
         {
             var commands = layer.GetAllMoveCommands(true);
 
             if (commands.Count < 2) return false;
 
             var totalLength = MoveCommand.GetLength(commands);
-            float length = Math.Min(totalLength * lengthRatio, maxLength);
+            float length = Math.Min(totalLength * config.LengthRatio, config.MaxLength);
 
             var lastPoint = commands[^1];
             var last2Point = commands[^2];
@@ -171,24 +174,25 @@ namespace Tools
             var startingVector = MoveCommand.CreateVector2(firstPoint, secondPoint);
             var startingVectorNormalized = startingVector / startingVector.Length();
             var dot = Vector2.Dot(finalVector, startingVector) / (finalVector.Length() * startingVector.Length());
-            if (dot < initialAlignmentThreshold)
+            if (dot < config.InitialAlignmentThreshold)
             {
                 return false;
             }
 
             var space = MoveCommand.CreateVector2(lastPoint, firstPoint);
-            var offset = space - (space.Length() / finalVector.Length() * dot * finalVector);
+            var spaceLength = space.Length();
+            var offset = space - (spaceLength / finalVector.Length() * dot * finalVector);
 
             float remainingLength = length;
             int index = commands.Count - 1;
-            while (remainingLength > 0)
+            while (remainingLength > 0 && index > 1)
             {
-                float weight = intensity * remainingLength / length;
+                float weight = config.Intensity * (remainingLength - spaceLength) / length;
                 var from = commands[index - 1];
                 var to = commands[index];
 
 
-                var usedLength = AlignExtrusion(from, to, startingVectorNormalized, offset, weight, remainingLength);
+                var usedLength = AlignExtrusion(from, to, startingVectorNormalized, offset, weight, remainingLength, config);
                 if (usedLength > 0)
                 {
                     layer.Update(from);
@@ -198,6 +202,9 @@ namespace Tools
                 if (index == commands.Count - 1)
                 {
                     // TODO: add offset to "to" command
+                    to.X = to.X.Value + offset.X;
+                    to.Y = to.Y.Value + offset.Y;
+                    layer.Update(to);
                 }
 
                 index--;
@@ -206,7 +213,7 @@ namespace Tools
             return true;
         }
 
-        private float AlignExtrusion(MoveCommand extrusionFrom, MoveCommand extrusionTo, Vector2 targetVector, Vector2 offset, float weight, float remainingLength)
+        private float AlignExtrusion(MoveCommand extrusionFrom, MoveCommand extrusionTo, Vector2 targetVector, Vector2 offset, float weight, float remainingLength, AlignConfig config)
         {
             if (!extrusionFrom.Can2D() || !extrusionTo.Can2D())
             {
@@ -219,13 +226,42 @@ namespace Tools
                 length = remainingLength;
             }
 
+            var offsetWeight = (float)Math.Pow(weight, config.OffsetWeightPower);
+
             var currentVector = MoveCommand.CreateVector2(extrusionFrom, extrusionTo);
             var currentVectorNormalized = currentVector / length;
-            var newVector = Vector2.Lerp(currentVectorNormalized, targetVector, weight) * length;
-            extrusionFrom.X = extrusionTo.X - newVector.X + offset.X * weight;
-            extrusionFrom.Y = extrusionTo.Y - newVector.Y + offset.Y * weight;
+            var newVector = Vector2.Lerp(currentVectorNormalized, targetVector, offsetWeight) * length;
+            extrusionFrom.X = extrusionTo.X - newVector.X + offset.X * offsetWeight;
+            extrusionFrom.Y = extrusionTo.Y - newVector.Y + offset.Y * offsetWeight;
 
             return length;
         }
     }
+
+
+
+    [Serializable]
+    public class AlignConfig
+    {
+        public float Intensity = 1f;
+        public float InitialAlignmentThreshold = 0.9f;
+        public float MaxLength = 5f;
+        public float LengthRatio = 0.2f;
+        public float OffsetWeightPower = 1.2f;
+
+        public AlignConfig()
+        {
+
+        }
+
+        public AlignConfig(float intensity = 1f, float initialAlignmentThreshold = 0.9f, float maxLength = 5f, float lengthRatio = 0.2f, float offsetWeightPower = 1.2f)
+        {
+            Intensity = intensity;
+            InitialAlignmentThreshold = initialAlignmentThreshold;
+            MaxLength = maxLength;
+            LengthRatio = lengthRatio;
+            OffsetWeightPower = offsetWeightPower;
+        }
+    }
+
 }
