@@ -115,7 +115,7 @@ namespace MyApp // Note: actual namespace depends on the project name.
                 {
                     Console.WriteLine("Vase ");
                     var alignConfig = new AlignConfig(1f, 0.9f, 5f, 0.2f, 2f);
-                    int count = tools.VaseLayers(parsed.Layers, parsedArgs.VaseTransitionLayers, false, alignConfig);
+                    int count = tools.VaseLayers(parsed.Layers, parsedArgs.VaseTransitionLayers, true, alignConfig);
                     Console.WriteLine($"Vase {count} layers with {parsedArgs.VaseTransitionLayers} transition layers!\nSaving");
 
                     fileWriteController.WriteAllLines(parsed.Parse());

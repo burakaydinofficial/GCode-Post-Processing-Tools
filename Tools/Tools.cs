@@ -36,10 +36,10 @@ namespace Tools
                 return false;
             }
 
-            if (a.LayerZ < 8)
-            {
-                feedRateMultiplier = a.LayerZ;
-            }
+            //if (a.LayerZ < 8)
+            //{
+            //    feedRateMultiplier = a.LayerZ;
+            //}
 
             var aCommands = a.GetAllMoveCommands(true);
             var bCommands = b.GetAllMoveCommands(true);
@@ -72,11 +72,9 @@ namespace Tools
         public int VaseLayers(IReadOnlyList<Layer> layers, int transitionLayerCount, bool connect = false, AlignConfig align = null)
         {
             int totalLayerCount = 0;
-            if (connect)
+            if (connect && align == null)
             {
-                var connectedLayers = ConnectSingleExtrusionLayers(layers);
-                if (connectedLayers < transitionLayerCount * 2)
-                    return 0;
+                ConnectSingleExtrusionLayers(layers);
             }
             int groupStart = 0;
             int groupEnd = 0;
@@ -107,6 +105,11 @@ namespace Tools
                     groupStart = groupEnd + 1;
                     totalLayerCount += count;
                 }
+            }
+
+            if (connect && align != null)
+            {
+                ConnectSingleExtrusionLayers(layers);
             }
             return totalLayerCount;
         }
@@ -187,9 +190,11 @@ namespace Tools
             int index = commands.Count - 1;
             while (remainingLength > 0 && index > 1)
             {
-                float weight = config.Intensity * (remainingLength - spaceLength) / length;
                 var from = commands[index - 1];
                 var to = commands[index];
+
+                float weight = config.Intensity * (remainingLength - spaceLength - MoveCommand.GetDistance(from, to)) / length;
+                weight = Math.Max(0, weight);
 
 
                 var usedLength = AlignExtrusion(from, to, startingVectorNormalized, offset, weight, remainingLength, config);
