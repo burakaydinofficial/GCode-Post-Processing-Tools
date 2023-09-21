@@ -9,6 +9,13 @@ namespace MyApp // Note: actual namespace depends on the project name.
     {
         public const bool VERBOSE = true;
 
+        public enum Mode
+        {
+            Unknown,
+            Connect,
+            Vase
+        }
+
         static void Main(string[] args)
         {
             Console.WriteLine("Args: ");
@@ -17,9 +24,16 @@ namespace MyApp // Note: actual namespace depends on the project name.
                 Console.WriteLine($"{i}:{args[i]}");
             }
             Console.WriteLine();
-            var givenFilePath = 
-                args.Length > 1 && File.Exists(args[1]) ? 1 : 
-                args.Length > 0 && File.Exists(args[0]) && (args[0].EndsWith("gcode") || args[0].EndsWith("pp") || args[0].Contains("upload")) ? 0 : -1;
+            var argList = args.ToList();
+            var givenFilePath =
+                args.Length > 1 && File.Exists(args[1]) ? 1 :
+                args.Length > 0 ? argList.FindIndex(x => File.Exists(x) && (x.EndsWith("gcode") || x.EndsWith("pp") || x.Contains("upload"))) : -1;
+            var argConnect = argList.Any(x => x.ToLowerInvariant() == "connect");
+            var argVase = argList.Any(x => x.ToLowerInvariant() == "vase");
+
+            var mode = argConnect ? Mode.Connect : argVase ? Mode.Vase : Mode.Unknown;
+            var vaseTransitionLayers = 4;
+
             var filePathGiven = givenFilePath >= 0;
             var filePath = filePathGiven ? args[givenFilePath] : "C:\\Users\\burak\\Downloads\\Cable Winder Outer Shell_PLA_11m56s.gcode";
             var targetPath = filePathGiven ? filePath : filePath.Replace(".gcode", "_connected.gcode");
@@ -29,19 +43,43 @@ namespace MyApp // Note: actual namespace depends on the project name.
             ConsoleFileDumper logDumper = filePathGiven ? new ConsoleFileDumper("C:\\Temp\\ConnectSingleExtrusionLayers.log") : null;
             Console.WriteLine(parsed.GetLayerInfo());
             var reserialized = parsed.Parse();
-            if (!filePathGiven)
-                Console.WriteLine("In order to connect layers type connect and hit enter");
-            var response = filePathGiven || Console.ReadLine() == "connect";
-            if (response)
+            if (mode == Mode.Unknown)
             {
-                Console.WriteLine("Connecting");
-                int count = ConnectSingleExtrusionLayers(parsed.Layers);
-                Console.WriteLine($"Connected {count} layers!\nSaving");
-                var fileWriteController = new FileController(targetPath);
-                fileWriteController.WriteAllLines(parsed.Parse());
-                Console.WriteLine("Saved!");
-                if (!filePathGiven)
-                    Console.ReadLine();
+                Console.WriteLine(
+                    "Select mode type \"connect\" to connect or type\"vase\" for vase mode and hit enter");
+                var response = Console.ReadLine().ToLowerInvariant();
+                if (response == "connect")
+                    mode = Mode.Connect;
+                if (response == "vase")
+                    mode = Mode.Vase;
+            }
+
+            switch (mode)
+            {
+                case Mode.Unknown:
+                    break;
+                case Mode.Connect:
+                    {
+                        Console.WriteLine("Connecting");
+                        int count = ConnectSingleExtrusionLayers(parsed.Layers);
+                        Console.WriteLine($"Connected {count} layers!\nSaving");
+                        var fileWriteController = new FileController(targetPath);
+                        fileWriteController.WriteAllLines(parsed.Parse());
+                        Console.WriteLine("Saved!");
+                    }
+                    break;
+                case Mode.Vase:
+                    {
+                        Console.WriteLine("Vase ");
+                        int count = VaseLayers(parsed.Layers, vaseTransitionLayers);
+                        Console.WriteLine($"Vase {count} layers with {vaseTransitionLayers} transition layers!\nSaving");
+                        var fileWriteController = new FileController(targetPath);
+                        fileWriteController.WriteAllLines(parsed.Parse());
+                        Console.WriteLine("Saved!");
+                    }
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
             }
             logDumper?.Dispose();
         }
@@ -68,7 +106,7 @@ namespace MyApp // Note: actual namespace depends on the project name.
 
             if (a.LayerZ < 8)
             {
-                feedRateMultiplier = a.LayerZ * 0.5f;
+                feedRateMultiplier = a.LayerZ;
             }
 
             var aCommands = a.GetAllMoveCommands();
@@ -92,11 +130,91 @@ namespace MyApp // Note: actual namespace depends on the project name.
                 return false;
             }
             var feed = relativeExtrusion ? feedRate * targetDistance : aLast.E.Value + feedRate * targetDistance;
-            var newCommand = new MoveCommand(target.X, target.Y, target.Z, feed, aLast.F, " Connecting to next layer!");
+            var newCommand = new MoveCommand(-1, target.X, target.Y, target.Z, feed, aLast.F, " Connecting to next layer!");
             a.AllLines.Add(newCommand.ToString());
             if (VERBOSE)
                 Console.WriteLine($"- connected at layer Z{a.LayerZ} position X{aLast.X.Value} Y{aLast.Y.Value} to Z{b.LayerZ} X{target.X.Value} Y{target.Y.Value} via command {newCommand}\t||| Distance: {targetDistance}\t||| Effective Feedrate: {feedRate}");
             return true;
+        }
+
+        public static int VaseLayers(IReadOnlyList<Layer> layers, int transitionLayerCount)
+        {
+            int totalLayerCount = 0;
+            //var connectedLayers = ConnectSingleExtrusionLayers(layers);
+            //if (connectedLayers < transitionLayerCount * 2)
+            //    return 0;
+            int groupStart = 0;
+            int groupEnd = 0;
+            while (groupStart < layers.Count && groupEnd < layers.Count)
+            {
+                if (!layers[groupStart].IsSingleExtrusion())
+                {
+                    groupStart++;
+                    continue;
+                }
+
+                if (groupEnd < groupStart)
+                    groupEnd = groupStart + 1;
+
+                if (groupEnd + 1 < layers.Count && layers[groupEnd + 1].IsSingleExtrusion())
+                {
+                    groupEnd++;
+                    continue;
+                }
+
+                if (groupEnd - groupStart > transitionLayerCount * 2)
+                {
+                    Console.WriteLine($"Found layers to vase between {groupStart}:Z{layers[groupStart].LayerZ} - {groupEnd}:Z{layers[groupEnd].LayerZ}");
+                    var count = groupEnd - groupStart + 1;
+
+                    VaseLayersInternal(layers.Skip(groupStart).Take(count), transitionLayerCount);
+
+                    groupStart = groupEnd + 1;
+                    totalLayerCount += count;
+                }
+            }
+            return totalLayerCount;
+        }
+
+        public static void VaseLayersInternal(IEnumerable<Layer> layers, int transitionLayerCount)
+        {
+            var list = layers.ToList();
+            var count = list.Count;
+            for (var i = 0; i < list.Count; i++)
+            {
+                var edgeDistance = Math.Min(i, count - (i + 1));
+                var layerWeight = Math.Clamp((float) edgeDistance / transitionLayerCount, 0f, 1f);
+                VaseLayer(list[i], layerWeight);
+            }
+        }
+
+        public static void VaseLayer(Layer layer, float weight)
+        {
+            var commands = layer.GetAllMoveCommands();
+            var first = commands[0];
+            var last = commands[^1];
+            var totalLength = 0f;
+            for (var i = 0; i < commands.Count - 1; i++)
+            {
+                totalLength += MoveCommand.GetDistance(commands[i], commands[i + 1]);
+            }
+
+            var startZ = layer.LayerZ;
+            var zFix = layer.LayerHeight * weight;
+            var endZ = layer.LayerZ + zFix;
+            float totalMovement = 0f;
+            for (var i = 0; i < commands.Count - 1; i++)
+            {
+                var from = commands[i];
+                var to = commands[i + 1];
+                totalMovement += MoveCommand.GetDistance(from, to);
+                if (!to.Z.HasValue)
+                {
+                    var progress = totalMovement / totalLength;
+                    to.Z = startZ + zFix * progress;
+                    layer.AllLines[to.LineIndex] = to.ToString();
+                }
+            }
         }
     }
 }

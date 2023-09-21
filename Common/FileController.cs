@@ -195,7 +195,16 @@ namespace Common
 
         public List<MoveCommand> GetAllMoveCommands()
         {
-            return AllLines.FindAll(MoveCommand.IsMoveCommand).ConvertAll(x => new MoveCommand(x));
+            List<MoveCommand> newList = new List<MoveCommand>();
+            for (var i = 0; i < AllLines.Count; i++)
+            {
+                var line = AllLines[i];
+                if (MoveCommand.IsMoveCommand(line))
+                {
+                    newList.Add(new MoveCommand(line, i));
+                }
+            }
+            return newList;
         }
 
         public Layer(IEnumerable<string> lines) : base(lines)
@@ -235,6 +244,7 @@ namespace Common
 
     public class MoveCommand
     {
+        public readonly int LineIndex;
         public double? X;
         public double? Y;
         public double? Z;
@@ -242,8 +252,9 @@ namespace Common
         public double? F;
         public string Comment;
 
-        public MoveCommand(double? x, double? y, double? z, double? e, double? f, string comment)
+        public MoveCommand(int lineIndex, double? x, double? y, double? z, double? e, double? f, string comment)
         {
+            LineIndex = lineIndex;
             X = x;
             Y = y;
             Z = z;
@@ -252,8 +263,9 @@ namespace Common
             Comment = comment;
         }
 
-        public MoveCommand(string line)
+        public MoveCommand(string line, int lineIndex)
         {
+            LineIndex = lineIndex;
             if (string.IsNullOrWhiteSpace(line))
                 throw new ArgumentException();
             var splitted = line.Split(' ');
@@ -326,7 +338,7 @@ namespace Common
             return !string.IsNullOrWhiteSpace(line) && line.StartsWith("G1");
         }
 
-        public static double GetDistance(MoveCommand a, MoveCommand b)
+        public static float GetDistance(MoveCommand a, MoveCommand b)
         {
             return new Vector2(b.X.HasValue && a.X.HasValue ? (float) b.X.Value - (float) a.X.Value : 0,
                 b.Y.HasValue && a.Y.HasValue ? (float) b.Y.Value - (float) a.Y.Value : 0).Length();
