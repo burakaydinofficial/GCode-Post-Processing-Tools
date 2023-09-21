@@ -155,6 +155,22 @@ namespace Tools
             }
         }
 
+        private static Vector2 TakeStartingVector(List<MoveCommand> commands, float length)
+        {
+            float distanceMoved = 0f;
+            Vector2 vec = Vector2.Zero;
+            int index = 0;
+            while (distanceMoved < length)
+            {
+                var newVec = MoveCommand.CreateVector2(commands[index], commands[index + 1]);
+                distanceMoved += newVec.Length();
+                vec = vec + newVec;
+                index++;
+            }
+
+            return vec;
+        }
+
         public bool AlignLayer(Layer layer, Layer reference, AlignConfig config)
         {
             var commands = layer.GetAllMoveCommands(true);
@@ -172,11 +188,15 @@ namespace Tools
 
             if (referenceCommands.Count < 2) return false;
 
+            var referenceLength = Math.Min(MoveCommand.GetLength(referenceCommands) * config.SampleLengthRatio,
+                config.MaxSampleLength);
+
             var firstPoint = referenceCommands[0];
-            var secondPoint = referenceCommands[1];
-            var startingVector = MoveCommand.CreateVector2(firstPoint, secondPoint);
-            var startingVectorNormalized = startingVector / startingVector.Length();
-            var dot = Vector2.Dot(finalVector, startingVector) / (finalVector.Length() * startingVector.Length());
+
+            var referenceVector = TakeStartingVector(referenceCommands, referenceLength);
+            var referenceVectorNormalized = referenceVector / referenceVector.Length();
+
+            var dot = Vector2.Dot(finalVector, referenceVectorNormalized) / (finalVector.Length());
             if (dot < config.InitialAlignmentThreshold)
             {
                 return false;
@@ -197,7 +217,7 @@ namespace Tools
                 weight = Math.Max(0, weight);
 
 
-                var usedLength = AlignExtrusion(from, to, startingVectorNormalized, offset, weight, remainingLength, config);
+                var usedLength = AlignExtrusion(from, to, referenceVectorNormalized, offset, weight, remainingLength, config);
                 if (usedLength > 0)
                 {
                     layer.Update(from);
@@ -253,6 +273,8 @@ namespace Tools
         public float MaxLength = 5f;
         public float LengthRatio = 0.2f;
         public float OffsetWeightPower = 1.2f;
+        public float MaxSampleLength = 1f;
+        public float SampleLengthRatio = 0.2f;
 
         public AlignConfig()
         {
