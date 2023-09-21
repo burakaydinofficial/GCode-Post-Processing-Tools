@@ -193,7 +193,7 @@ namespace Common
         public float LayerZ;
         public float LayerHeight;
 
-        public List<MoveCommand> GetAllMoveCommands()
+        public List<MoveCommand> GetAllMoveCommands(bool onlyCan2D = false)
         {
             List<MoveCommand> newList = new List<MoveCommand>();
             for (var i = 0; i < AllLines.Count; i++)
@@ -201,10 +201,20 @@ namespace Common
                 var line = AllLines[i];
                 if (MoveCommand.IsMoveCommand(line))
                 {
-                    newList.Add(new MoveCommand(line, i));
+                    var command = new MoveCommand(line, i);
+                    if (!onlyCan2D || command.Can2D())
+                        newList.Add(command);
                 }
             }
             return newList;
+        }
+
+        /// <summary>
+        /// Expensive method do not call frequently
+        /// </summary>
+        public float GetLength()
+        {
+            return MoveCommand.GetLength(GetAllMoveCommands(true));
         }
 
         public Layer(IEnumerable<string> lines) : base(lines)
@@ -225,7 +235,7 @@ namespace Common
 
         public bool IsSingleExtrusion()
         {
-            var allMoveCommands = GetAllMoveCommands();
+            var allMoveCommands = GetAllMoveCommands(true);
             var firstExtrusion = allMoveCommands.FindIndex(x => x.E.HasValue);
             if (firstExtrusion != -1)
             {
@@ -239,6 +249,14 @@ namespace Common
         {
             return
                 $"Layer Z: {LayerZ} Height: {LayerHeight} Line Count: {AllLines.Count} IsSingleExtrusion: {IsSingleExtrusion()}";
+        }
+
+        public void Update(MoveCommand command)
+        {
+            if (command.LineIndex >= 0)
+            {
+                AllLines[command.LineIndex] = command.ToString();
+            }
         }
     }
 
@@ -333,15 +351,45 @@ namespace Common
             return strB.ToString();
         }
 
+        public bool Can2D() => X.HasValue && Y.HasValue;
+
+        public bool Can3D() => X.HasValue && Y.HasValue && Z.HasValue;
+
         public static bool IsMoveCommand(string line)
         {
             return !string.IsNullOrWhiteSpace(line) && line.StartsWith("G1");
         }
 
+        public static Vector2 CreateVector2(MoveCommand from, MoveCommand to)
+        {
+            return new Vector2(
+                to.X.HasValue && from.X.HasValue ? (float)to.X.Value - (float)from.X.Value : 0,
+                to.Y.HasValue && from.Y.HasValue ? (float)to.Y.Value - (float)from.Y.Value : 0
+                );
+        }
+        public static Vector3 CreateVector3(MoveCommand from, MoveCommand to)
+        {
+            return new Vector3(
+                to.X.HasValue && from.X.HasValue ? (float)to.X.Value - (float)from.X.Value : 0,
+                to.Y.HasValue && from.Y.HasValue ? (float)to.Y.Value - (float)from.Y.Value : 0,
+                to.Z.HasValue && from.Z.HasValue ? (float)to.Z.Value - (float)from.Z.Value : 0
+                );
+        }
+
         public static float GetDistance(MoveCommand a, MoveCommand b)
         {
-            return new Vector2(b.X.HasValue && a.X.HasValue ? (float) b.X.Value - (float) a.X.Value : 0,
-                b.Y.HasValue && a.Y.HasValue ? (float) b.Y.Value - (float) a.Y.Value : 0).Length();
+            return CreateVector2(a, b).Length();
+        }
+
+        public static float GetLength(IReadOnlyList<MoveCommand> commands)
+        {
+
+            var totalLength = 0f;
+            for (var i = 0; i < commands.Count - 1; i++)
+            {
+                totalLength += MoveCommand.GetDistance(commands[i], commands[i + 1]);
+            }
+            return totalLength;
         }
     }
 }
