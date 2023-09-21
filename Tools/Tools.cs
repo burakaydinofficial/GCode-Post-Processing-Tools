@@ -171,6 +171,22 @@ namespace Tools
             return vec;
         }
 
+        private static Vector2 TakeFinalVector(List<MoveCommand> commands, float length)
+        {
+            float distanceMoved = 0f;
+            Vector2 vec = Vector2.Zero;
+            int index = 0;
+            while (distanceMoved < length)
+            {
+                var newVec = MoveCommand.CreateVector2(commands[index^2], commands[index^1]);
+                distanceMoved += newVec.Length();
+                vec = vec + newVec;
+                index++;
+            }
+
+            return vec;
+        }
+
         public bool AlignLayer(Layer layer, Layer reference, AlignConfig config)
         {
             var commands = layer.GetAllMoveCommands(true);
@@ -179,17 +195,18 @@ namespace Tools
 
             var totalLength = MoveCommand.GetLength(commands);
             float length = Math.Min(totalLength * config.LengthRatio, config.MaxLength);
+            float finalVectorLength = Math.Min(totalLength * config.FinalVectorSampleLengthRatio,
+                config.FinalVectorMaxSampleLength);
 
             var lastPoint = commands[^1];
-            var last2Point = commands[^2];
-            var finalVector = MoveCommand.CreateVector2(last2Point, lastPoint);
+            var finalVector = TakeFinalVector(commands, finalVectorLength);
 
             var referenceCommands = reference.GetAllMoveCommands(true);
 
             if (referenceCommands.Count < 2) return false;
 
-            var referenceLength = Math.Min(MoveCommand.GetLength(referenceCommands) * config.SampleLengthRatio,
-                config.MaxSampleLength);
+            var referenceLength = Math.Min(MoveCommand.GetLength(referenceCommands) * config.ReferenceVectorSampleLengthRatio,
+                config.ReferenceVectorMaxSampleLength);
 
             var firstPoint = referenceCommands[0];
 
@@ -273,8 +290,10 @@ namespace Tools
         public float MaxLength = 5f;
         public float LengthRatio = 0.2f;
         public float OffsetWeightPower = 1.2f;
-        public float MaxSampleLength = 1f;
-        public float SampleLengthRatio = 0.2f;
+        public float ReferenceVectorMaxSampleLength = 1f;
+        public float ReferenceVectorSampleLengthRatio = 0.2f;
+        public float FinalVectorMaxSampleLength = 1f;
+        public float FinalVectorSampleLengthRatio = 0.2f;
 
         public AlignConfig()
         {
