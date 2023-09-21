@@ -178,7 +178,7 @@ namespace Tools
             int index = 0;
             while (distanceMoved < length)
             {
-                var newVec = MoveCommand.CreateVector2(commands[index^2], commands[index^1]);
+                var newVec = MoveCommand.CreateVector2(commands[^2], commands[^1]);
                 distanceMoved += newVec.Length();
                 vec = vec + newVec;
                 index++;
