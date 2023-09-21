@@ -121,8 +121,10 @@ namespace Tools
             for (var i = 0; i < list.Count; i++)
             {
                 var edgeDistance = Math.Min(i, count - (i + 1));
+                var closerToFloor = i < count - i;
                 var layerWeight = Math.Clamp((float)edgeDistance / transitionLayerCount, 0f, 1f);
-                VaseLayer(list[i], layerWeight);
+                var thicknessFactor = 1 + (closerToFloor ? layerWeight : -layerWeight) * (edgeDistance < transitionLayerCount ? 1f / transitionLayerCount : 0);
+                VaseLayer(list[i], layerWeight, thicknessFactor);
                 if (align != null && i < list.Count - 1)
                 {
                     AlignLayer(list[i], list[i + 1], align);
@@ -130,7 +132,7 @@ namespace Tools
             }
         }
 
-        public void VaseLayer(Layer layer, float weight)
+        public void VaseLayer(Layer layer, float weight, float thicknessFactor)
         {
             var commands = layer.GetAllMoveCommands(true);
             var first = commands[0];
@@ -150,6 +152,8 @@ namespace Tools
                 {
                     var progress = totalMovement / totalLength;
                     to.Z = startZ + zFix * progress;
+                    if (to.E.HasValue)
+                        to.E = to.E.Value * thicknessFactor;
                     layer.Update(to);
                 }
             }
