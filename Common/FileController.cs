@@ -1,0 +1,335 @@
+﻿using System.Globalization;
+using System.Numerics;
+using System.Text;
+using Utilities;
+
+namespace Utilities
+{
+    public class FileController
+    {
+        public readonly string Path;
+
+        public FileController(string path)
+        {
+            Path = path;
+        }
+
+        public string[] ReadAllLines()
+        {
+            return File.ReadAllLines(Path);
+        }
+
+        public bool WriteAllLines(string[] lines)
+        {
+            try
+            {
+                File.WriteAllLines(Path, lines);
+                return true;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                return false;
+            }
+        }
+    }
+
+    public class ConsoleFileDumper : IDisposable, IAsyncDisposable
+    {
+        private readonly FileStream ostrm;
+        private readonly StreamWriter writer;
+        private readonly TextWriter oldOut;
+
+        public ConsoleFileDumper(string filePath)
+        {
+            oldOut = Console.Out;
+            try
+            {
+                ostrm = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write);
+                writer = new StreamWriter(ostrm);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Cannot open Redirect.txt for writing");
+                Console.WriteLine(e.Message);
+                return;
+            }
+            Console.SetOut(writer);
+        }
+
+        public void Dispose()
+        {
+            Console.SetOut(oldOut);
+            writer.Flush();
+            ostrm.Dispose();
+            oldOut.Dispose();
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            Console.SetOut(oldOut);
+            await ostrm.FlushAsync();
+            await ostrm.DisposeAsync();
+            await oldOut.DisposeAsync();
+        }
+    }
+
+    public class ParserHelpers
+    {
+
+        public static bool TryParse(string s, out string keyword, out double value)
+        {
+            keyword = null;
+            value = 0;
+            if (string.IsNullOrWhiteSpace(s))
+                return false;
+            var subs = s.Substring(1);
+            if (subs.StartsWith('.')) subs = '0' + subs;
+            if (subs.StartsWith("-.")) subs = subs.Replace("-.", "-0.");
+            if (subs.Length > 0)
+            {
+                bool success = TryParse(subs, out value);
+                if (!success)
+                    return false;
+                keyword = s.Substring(0, 1);
+                return true;
+            }
+
+            return false;
+        }
+
+        public static bool TryParse(string subs, out float value)
+        {
+            return float.TryParse(subs, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
+        }
+
+        public static bool TryParse(string subs, out double value)
+        {
+            return double.TryParse(subs, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
+        }
+
+        public static void Append(StringBuilder strB, string key, double value)
+        {
+            strB.AppendFormat(CultureInfo.InvariantCulture, " {0}{1:0.#####}", key, value);
+            //var value = value.ToString(CultureInfo.InvariantCulture);
+            //strB.Append(value);
+        }
+    }
+}
+
+namespace Common
+{
+
+    public class CommandSelector
+    {
+
+    }
+
+    public class ParsedFile
+    {
+        public readonly LayerBase Intro;
+        public readonly List<Layer> Layers;
+        public readonly LayerBase Outro;
+
+        public ParsedFile(string[] lines)
+        {
+            var list = lines.ToList();
+            var firstLayer = list.FindIndex(x => x.StartsWith(";LAYER_CHANGE"));
+            Intro = new LayerBase(list.Take(firstLayer));
+            var outroStart = list.FindIndex(x => x.StartsWith("; EXECUTABLE_BLOCK_END"));
+            var clearList = list.Skip(firstLayer);
+            if (outroStart > -1)
+            {
+                Outro = new LayerBase(list.Skip(outroStart));
+                clearList = clearList.Take(outroStart - firstLayer);
+            }
+
+            Layers = new List<Layer>();
+            var currentList = clearList;
+            using var enumerator = currentList.GetEnumerator();
+            List<string> lineList = new List<string>();
+            while (enumerator.MoveNext())
+            {
+                do
+                {
+                    lineList.Add(enumerator.Current);
+                } while (enumerator.MoveNext() && !enumerator.Current.StartsWith(";LAYER_CHANGE"));
+                Layers.Add(new Layer(lineList));
+                lineList.Clear();
+                lineList.Add(enumerator.Current);
+            }
+        }
+
+        public string[] Parse()
+        {
+            List<string> lines = new List<string>();
+            lines.AddRange(Intro.AllLines);
+            foreach (var layer in Layers)
+            {
+                lines.AddRange(layer.AllLines);
+            }
+            lines.AddRange(Outro.AllLines);
+            return lines.ToArray();
+        }
+
+        public string GetLayerInfo()
+        {
+            return string.Join('\n', Layers.ConvertAll(x => x.GetInfo()));
+        }
+    }
+
+    public class LayerBase
+    {
+        public readonly List<string> AllLines;
+
+        public LayerBase(IEnumerable<string> lines)
+        {
+            AllLines = new List<string>(lines);
+        }
+    }
+
+    public class Layer : LayerBase
+    {
+        public float LayerZ;
+        public float LayerHeight;
+
+        public List<MoveCommand> GetAllMoveCommands()
+        {
+            return AllLines.FindAll(MoveCommand.IsMoveCommand).ConvertAll(x => new MoveCommand(x));
+        }
+
+        public Layer(IEnumerable<string> lines) : base(lines)
+        {
+            var zDeclaration = AllLines.Find(x => x.StartsWith(";Z:"));
+            if (zDeclaration != null)
+            {
+                ParserHelpers.TryParse(zDeclaration.Substring(3), out LayerZ);
+                //LayerZ = double.Parse(zDeclaration.AsSpan(3));
+            }
+            var heightDeclaration = AllLines.Find(x => x.StartsWith(";HEIGHT:"));
+            if (heightDeclaration != null)
+            {
+                ParserHelpers.TryParse(heightDeclaration.Substring(8), out LayerHeight);
+                //LayerHeight = double.Parse(heightDeclaration.AsSpan(8));
+            }
+        }
+
+        public bool IsSingleExtrusion()
+        {
+            var allMoveCommands = GetAllMoveCommands();
+            var firstExtrusion = allMoveCommands.FindIndex(x => x.E.HasValue);
+            if (firstExtrusion != -1)
+            {
+                var nextNonExtrusion = allMoveCommands.FindIndex(firstExtrusion, x => !x.E.HasValue);
+                return nextNonExtrusion == -1;
+            }
+            return false;
+        }
+
+        public virtual string GetInfo()
+        {
+            return
+                $"Layer Z: {LayerZ} Height: {LayerHeight} Line Count: {AllLines.Count} IsSingleExtrusion: {IsSingleExtrusion()}";
+        }
+    }
+
+    public class MoveCommand
+    {
+        public double? X;
+        public double? Y;
+        public double? Z;
+        public double? E;
+        public double? F;
+        public string Comment;
+
+        public MoveCommand(double? x, double? y, double? z, double? e, double? f, string comment)
+        {
+            X = x;
+            Y = y;
+            Z = z;
+            E = e;
+            F = f;
+            Comment = comment;
+        }
+
+        public MoveCommand(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                throw new ArgumentException();
+            var splitted = line.Split(' ');
+            if (splitted[0] != "G1")
+                throw new ArgumentException();
+
+            bool comment = false;
+
+            foreach (var s in splitted)
+            {
+                if (ParserHelpers.TryParse(s, out string keyword, out double parsed))
+                {
+                    switch (keyword)
+                    {
+                        case "X": X = parsed; break;
+                        case "Y": Y = parsed; break;
+                        case "Z": Z = parsed; break;
+                        case "E": E = parsed; break;
+                        case "F": F = parsed; break;
+                    }
+                }
+                if (s.StartsWith(';'))
+                {
+                    comment = true;
+                    break;
+                }
+            }
+
+            if (comment)
+            {
+                var index = line.IndexOf(';');
+                Comment = line.Substring(index + 1);
+            }
+        }
+
+        public override string ToString()
+        {
+            var strB = new StringBuilder("G1");
+            if (X.HasValue)
+            {
+                ParserHelpers.Append(strB, "X", X.Value);
+            }
+            if (Y.HasValue)
+            {
+                ParserHelpers.Append(strB, "Y", Y.Value);
+            }
+            if (Z.HasValue)
+            {
+                ParserHelpers.Append(strB, "Z", Z.Value);
+            }
+            if (E.HasValue)
+            {
+                ParserHelpers.Append(strB, "E", E.Value);
+            }
+            if (F.HasValue)
+            {
+                ParserHelpers.Append(strB, "F", F.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(Comment))
+            {
+                strB.Append(" ;");
+                strB.Append(Comment);
+            }
+            return strB.ToString();
+        }
+
+        public static bool IsMoveCommand(string line)
+        {
+            return !string.IsNullOrWhiteSpace(line) && line.StartsWith("G1");
+        }
+
+        public static double GetDistance(MoveCommand a, MoveCommand b)
+        {
+            return new Vector2(b.X.HasValue && a.X.HasValue ? (float) b.X.Value - (float) a.X.Value : 0,
+                b.Y.HasValue && a.Y.HasValue ? (float) b.Y.Value - (float) a.Y.Value : 0).Length();
+        }
+    }
+}
