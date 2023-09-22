@@ -40,7 +40,7 @@ namespace MyApp // Note: actual namespace depends on the project name.
             var argAlignedVase = argList.Any(x => x.ToLowerInvariant() == "aligned-vase");
 
             WorkingMode = argConnect ? Mode.Connect : argVase ? Mode.Vase : argAlignedVase ? Mode.AlignedVase : Mode.Unknown;
-            VaseTransitionLayers = 4;
+            VaseTransitionLayers = 1;
 
             FilePathGiven = givenFilePath >= 0;
             FilePath = FilePathGiven ? args[givenFilePath] : "C:\\Users\\burak\\Downloads\\Cable Winder Outer Shell_PLA_11m56s.gcode";

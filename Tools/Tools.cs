@@ -105,6 +105,10 @@ namespace Tools
                     groupStart = groupEnd + 1;
                     totalLayerCount += count;
                 }
+                else
+                {
+                    groupStart++;
+                }
             }
 
             if (connect && align != null)
@@ -122,9 +126,26 @@ namespace Tools
             {
                 var edgeDistance = Math.Min(i, count - (i + 1));
                 var closerToFloor = i < count - i;
-                var layerWeight = Math.Clamp((float)edgeDistance / transitionLayerCount, 0f, 1f);
-                var thicknessFactor = 1 + (closerToFloor ? layerWeight : -layerWeight) * (edgeDistance < transitionLayerCount ? 1f / transitionLayerCount : 0);
-                VaseLayer(list[i], layerWeight, thicknessFactor);
+                var layerWeight = Math.Clamp((float)(edgeDistance + 1) / transitionLayerCount, 0f, 1f);
+                var thicknessFactorStart = 1;
+                var thicknessFactorEnd = 1;
+                if (edgeDistance < transitionLayerCount)
+                {
+                    var extraOffset = (closerToFloor ? 1 : -1) / transitionLayerCount;
+                    if (edgeDistance == 0)
+                    {
+                        if (closerToFloor)
+                            thicknessFactorEnd += extraOffset;
+                        else
+                            thicknessFactorStart += extraOffset;
+                    }
+                    else
+                    {
+                        thicknessFactorStart += extraOffset;
+                        thicknessFactorEnd += extraOffset;
+                    }
+                }
+                VaseLayer(list[i], layerWeight, thicknessFactorStart, thicknessFactorEnd);
                 if (align != null && i < list.Count - 1)
                 {
                     AlignLayer(list[i], list[i + 1], align);
@@ -132,7 +153,7 @@ namespace Tools
             }
         }
 
-        public void VaseLayer(Layer layer, float weight, float thicknessFactor)
+        public void VaseLayer(Layer layer, float weight, float startThicknessFactor, float finaleThicknessFactor)
         {
             var commands = layer.GetAllMoveCommands(true);
             var first = commands[0];
@@ -151,6 +172,7 @@ namespace Tools
                 if (!to.Z.HasValue)
                 {
                     var progress = totalMovement / totalLength;
+                    var thicknessFactor = progress * finaleThicknessFactor + (1f - progress) * startThicknessFactor;
                     to.Z = startZ + zFix * progress;
                     if (to.E.HasValue)
                         to.E = to.E.Value * thicknessFactor;
